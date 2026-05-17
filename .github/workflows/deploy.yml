@@ -1,0 +1,62 @@
+name: Frontend Deploy Pipeline
+
+on:
+  push:
+    branches: [ "deploy" ]
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      # Configuración de credenciales de AWS usando GitHub Secrets
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      # Autenticación en Amazon ECR
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      # Construcción y subida de la imagen a ECR
+      - name: Build, Tag, and Push Image to Amazon ECR
+        env:
+          ECR_REGISTRY: ${{ secrets.ECR_REGISTRY }}
+          ECR_REPOSITORY: ${{ secrets.ECR_REPO_URL_FRONTEND }} # Tu secreto para el Front
+          IMAGE_TAG: latest
+        run: |
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
+
+  deploy:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    steps:
+      # Conexión por SSH a la instancia EC2 Pública del Frontend
+      - name: Deploy to EC2 via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.EC2_FRONTEND_HOST_IP }} # IP Pública de la EC2 del Front
+          username: ec2-user
+          key: ${{ secrets.EC2_SSH_KEY }} # Tu llave privada .pem
+          script: |
+            # Detener y limpiar contenedores anteriores si existen
+            docker stop front_container || true
+            docker rm front_container || true
+            
+            # Autenticar Docker con AWS ECR en la máquina virtual de destino
+            aws ecr get-login-password --region ${{ secrets.AWS_REGION }} | docker login --username AWS --password-stdin ${{ secrets.ECR_REGISTRY }}
+            
+            # Descargar la nueva imagen
+            docker pull ${{ secrets.ECR_REGISTRY }}/${{ secrets.ECR_REPO_URL_FRONTEND }}:latest
+            
+            # Correr el contenedor en el puerto 80 (HTTP público)
+            docker run -d --name front_container -p 80:80 ${{ secrets.ECR_REGISTRY }}/${{ secrets.ECR_REPO_URL_FRONTEND }}:latest
