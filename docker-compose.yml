@@ -5,5 +5,5 @@ services:
     build: .
     container_name: frontend_despachos
     ports:
-      - "80:80"                  
+      - "80:8080"  # <--- Cambiamos el "80:80" por "80:8080"
     restart: always
