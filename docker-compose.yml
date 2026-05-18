@@ -1,0 +1,9 @@
+codigo version: '3.8'
+
+services:
+  frontend-app:
+    build: .
+    container_name: frontend_despachos
+    ports:
+      - "80:80"                  
+    restart: always
